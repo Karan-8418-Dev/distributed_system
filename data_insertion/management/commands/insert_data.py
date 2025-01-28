@@ -20,9 +20,10 @@ class Command(BaseCommand):
                             {'name': 'Eve', 'email': 'eve@example.com'},
                             {'name': 'Frank', 'email': 'frank@example.com'},
                             {'name': 'Grace', 'email': 'grace@example.com'},
-                            {'name': 'Alice', 'email': 'alice@example.com'},  # Duplicate
+                            {'name': 'Alice', 'email': 'alice@example.com'},  # Should fail - duplicate
                             {'name': 'Henry', 'email': 'henry@example.com'},
-                            {'name': 'Jane', 'email': 'jane@example.com'}
+                            {'email': 'jane@example.com'}# Should fail - missing name
+
                               ]
         products_data = [
                             {'name': 'Laptop', 'price': 1000.00},
@@ -31,10 +32,10 @@ class Command(BaseCommand):
                             {'name': 'Monitor', 'price': 300.00},
                             {'name': 'Keyboard', 'price': 50.00},
                             {'name': 'Mouse', 'price': 30.00},
-                            {'name': 'Laptop', 'price': 1000.00},  # Duplicate
+                            {'name': 'Laptop', 'price': 1000.00}, # Should fail - duplicate
                             {'name': 'Smartwatch', 'price': 250.00},
                             {'name': 'Gaming Chair', 'price': 500.00},
-                            {'name': 'Earbuds', 'price': -50.00}  # Invalid price
+                            {'name': 'Earbuds', 'price': -50.00}  # Should fail - negative price
                               ]
 
         orders_data = [
@@ -45,45 +46,68 @@ class Command(BaseCommand):
                             {'user_id': 5, 'product_id': 5, 'quantity': 3},
                             {'user_id': 6, 'product_id': 6, 'quantity': 4},
                             {'user_id': 7, 'product_id': 7, 'quantity': 2},
-                            {'user_id': 8, 'product_id': 8, 'quantity': 0},  # Invalid quantity
-                            {'user_id': 9, 'product_id': 1, 'quantity': -1},  # Invalid quantity
-                            {'user_id': 10, 'product_id': 11, 'quantity': 2}  # Invalid product_id
+                            {'user_id': 8, 'product_id': 8, 'quantity': 0},   # Should fail - zero quantity
+                            {'user_id': 9, 'product_id': 1, 'quantity': -1},   # Should fail - negative quantity
+                            {'user_id': 10, 'product_id': 11, 'quantity': 2}   # Should fail - invalid product_id
                             ]
 
         def insert_user(data):
             try:
-                if '@' not in data['email']:  # Application-level validation
-                    logger.warning(f"Invalid email: {data['email']}")
+                if 'name' not in data or not data['name']:
+                    logger.warning(f"Invalid user - missing name: {data}")
+                    return
+                if '@' not in data.get('email', ''):
+                    logger.warning(f"Invalid email: {data}")
+                    return
+                # Check for duplicates
+                if Users.objects.filter(email=data['email']).exists():
+                    logger.warning(f"Duplicate email: {data['email']}")
                     return
                 Users.objects.get_or_create(**data)
-                logger.info(f"Inserted user: {data['name']}")
+                logger.info(f"Inserted user: {data.get('name', 'Unknown')}")
             except Exception as e:
-                logger.error(f"Error inserting user: {e}")
+                 logger.error(f"Error inserting user: {e}")
 
         def insert_product(data):
             try:
-                if data['price'] < 0:  # Application-level validation
+                if data['price'] < 0:
                     logger.warning(f"Invalid price: {data['price']}")
+                    return
+                # Check for duplicates (same name and price)
+                if Products.objects.filter(name=data['name'], price=data['price']).exists():
+                    logger.warning(f"Duplicate product: {data['name']}")
                     return
                 Products.objects.get_or_create(**data)
                 logger.info(f"Inserted product: {data['name']}")
             except Exception as e:
                 logger.error(f"Error inserting product: {e}")
-
+        
         def insert_order(data):
             try:
-                if data['quantity'] < 0:  # Application-level validation
+                if data['quantity'] <= 0:
                     logger.warning(f"Invalid quantity: {data['quantity']}")
+                    return
+                # Check if product exists
+                if not Products.objects.filter(id=data['product_id']).exists():
+                    logger.warning(f"Invalid product_id: {data['product_id']}")
                     return
                 Orders.objects.create(**data)
                 logger.info(f"Inserted order for user_id: {data['user_id']}")
             except Exception as e:
                 logger.error(f"Error inserting order: {e}")
 
-        # Concurrent insertion using ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            executor.map(insert_user, users_data)
-            executor.map(insert_product, products_data)
-            executor.map(insert_order, orders_data)
+         # Concurrent insertion using ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=1) as executor:  # Changed from 10 to 1
+              # Process each type sequentially
+            for user in users_data:
+                executor.submit(insert_user, user)
+            for product in products_data:
+                executor.submit(insert_product, product)
+            for order in orders_data:
+                executor.submit(insert_order, order)
+        #Concurrrent Execution
+            # executor.map(insert_user, users_data)
+            # executor.map(insert_product, products_data)
+            # executor.map(insert_order, orders_data)
 
         self.stdout.write(self.style.SUCCESS('Data insertion completed'))
